@@ -1,0 +1,67 @@
+name: Check for CyberChef Updates
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Runs daily at midnight
+  workflow_dispatch:   # Allows manual trigger
+
+jobs:
+  update-cyberchef:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Get all branches
+
+      - name: Get Latest Release Info
+        id: cyberchef
+        run: |
+          # Fetch the latest release tag name (e.g., v10.23.0)
+          LATEST_TAG=$(curl -s https://api.github.com/repos/gchq/CyberChef/releases/latest | jq -r .tag_name)
+          # Fetch the download URL for the zip file
+          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/gchq/CyberChef/releases/latest | jq -r '.assets[] | select(.name | endswith(".zip")) | .browser_download_url')
+          
+          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+
+      - name: Check if update is needed
+        id: check
+        run: |
+          # Compare with a local file 'version.txt'
+          if [ -f version.txt ] && [ "$(cat version.txt)" == "${{ steps.cyberchef.outputs.tag }}" ]; then
+            echo "Already up to date."
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version found: ${{ steps.cyberchef.outputs.tag }}"
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Files
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          # Create/Switch to the deploy branch
+          git checkout -B deploy
+          
+          # Delete all existing app files (except the .github folder)
+          find . -maxdepth 1 ! -name '.github' ! -name '.git' ! -name '.' -exec rm -rf {} +
+
+          # Download and extract
+          wget -O cyberchef.zip "${{ steps.cyberchef.outputs.url }}"
+          unzip -o cyberchef.zip
+          rm cyberchef.zip
+
+          # Save the new version tag
+          echo "${{ steps.cyberchef.outputs.tag }}" > version.txt
+
+      - name: Commit and Push to Deploy Branch
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Automated update to ${{ steps.cyberchef.outputs.tag }}"
+          git push origin deploy --force
