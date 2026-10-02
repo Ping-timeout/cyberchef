@@ -1,9 +1,7 @@
 name: Sync CyberChef Release
 
 on:
-  schedule:
-    - cron: '0 0 * * *' # Daily at midnight
-  workflow_dispatch:   # Manual trigger
+  workflow_dispatch:
 
 permissions:
   contents: write
